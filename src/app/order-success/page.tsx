@@ -1,12 +1,28 @@
 "use client";
+import { Suspense } from 'react';
 import Link from 'next/link';
-import { CheckCircle, ArrowRight, Package } from 'lucide-react';
+import { CheckCircle, Package } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 
-export default function OrderSuccessPage() {
+// 1. ISOLATE THE PART THAT USES SEARCH PARAMS
+function SuccessContent() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get('id');
 
+  return (
+    <>
+      {orderId && (
+        <div className="bg-[#F9F5F0] p-4 rounded-xl border border-[#4B3621]/10 mb-8">
+          <p className="text-xs font-bold uppercase text-gray-400 mb-1">Order Reference Code</p>
+          <p className="text-2xl font-bold text-[#C5A059] tracking-wider">{orderId}</p>
+        </div>
+      )}
+    </>
+  );
+}
+
+// 2. MAIN PAGE COMPONENT (Wraps content in Suspense)
+export default function OrderSuccessPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F9F5F0] p-4">
       <div className="bg-white p-10 rounded-2xl shadow-xl max-w-md w-full text-center border border-[#4B3621]/10">
@@ -25,12 +41,10 @@ export default function OrderSuccessPage() {
           Thank you for ordering with Whisk'd. We have received your request and will begin preparation shortly.
         </p>
 
-        {orderId && (
-          <div className="bg-[#F9F5F0] p-4 rounded-xl border border-[#4B3621]/10 mb-8">
-            <p className="text-xs font-bold uppercase text-gray-400 mb-1">Order Reference Code</p>
-            <p className="text-2xl font-bold text-[#C5A059] tracking-wider">{orderId}</p>
-          </div>
-        )}
+        {/* ⚠️ SUSPENSE BOUNDARY FIXES THE BUILD ERROR */}
+        <Suspense fallback={<div className="h-20 flex items-center justify-center">Loading details...</div>}>
+          <SuccessContent />
+        </Suspense>
 
         <div className="space-y-3">
           <Link 
