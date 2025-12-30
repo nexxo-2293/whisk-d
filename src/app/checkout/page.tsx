@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
+import { Copy, Check } from 'lucide-react'; // Added icons
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -26,19 +27,16 @@ export default function CheckoutPage() {
     txnId: '' 
   });
 
-  // NEW: State for Order Note
   const [note, setNote] = useState('');
-
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'upi'>('cod');
+  const [copied, setCopied] = useState(false); // For copy button feedback
 
   // --- INITIAL LOAD ---
   useEffect(() => {
-    // 1. Fetch Admin Payment Details
     supabase.from('app_settings').select('*').single().then(({ data }) => {
       if (data) setAdminUpi({ id: data.upi_id, name: data.upi_name });
     });
 
-    // 2. Load Cart
     const cart = JSON.parse(localStorage.getItem('whiskd_cart') || '{}');
     const products = JSON.parse(localStorage.getItem('whiskd_products') || '[]');
     let calcTotal = 0;
@@ -53,7 +51,6 @@ export default function CheckoutPage() {
     setItems(cartItems);
     setTotal(calcTotal);
 
-    // 3. Check Auth & Pre-fill Data
     const checkAuth = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -80,8 +77,14 @@ export default function CheckoutPage() {
 
   const getMinDate = () => {
     const d = new Date();
-    d.setDate(d.getDate() + 1); // Tomorrow
+    d.setDate(d.getDate() + 1); 
     return d.toISOString().split('T')[0];
+  };
+
+  const copyUpi = () => {
+    navigator.clipboard.writeText(adminUpi.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const upiLink = `upi://pay?pa=${adminUpi.id}&pn=${encodeURIComponent(adminUpi.name)}&am=${total}&cu=INR`;
@@ -92,12 +95,10 @@ export default function CheckoutPage() {
     setLoading(true);
 
     try {
-      // Validation
       if (paymentMethod === 'upi' && !formData.txnId) {
         throw new Error("Please enter the Transaction ID / UTR number.");
       }
 
-      // 1. Insert Order into Supabase
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .insert({
@@ -105,31 +106,27 @@ export default function CheckoutPage() {
           customer_name: formData.name,
           customer_phone: formData.phone,
           customer_email: formData.email,
-          
           delivery_address: formData.address, 
           delivery_date: formData.date,
-          
           items: items,
           total_amount: total,
           payment_method: paymentMethod,
           payment_status: paymentMethod === 'cod' ? 'Pending' : 'Verify Required',
-          
-          // Save the note
           order_note: note 
         })
-        .select() // Return data to get the generated 'order_code'
+        .select()
         .single(); 
 
       if (orderError) throw orderError;
 
-      // 2. Send Email
+      // Send Email
       await fetch('/api/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'NEW_ORDER',
           orderDetails: {
-            id: orderData.order_code, // Use the readable code (e.g. ORD-1234)
+            id: orderData.order_code,
             name: formData.name,
             phone: formData.phone,
             address: formData.address,
@@ -141,10 +138,11 @@ export default function CheckoutPage() {
         })
       });
 
-      // 3. Success & Cleanup
+      // Cleanup and Redirect
       localStorage.removeItem('whiskd_cart');
-      alert("Order Placed Successfully! Check your email for confirmation.");
-      router.push('/');
+      
+      // ✅ CHANGED: Redirect to success page with ID
+      router.push(`/order-success?id=${orderData.order_code}`);
 
     } catch (error: any) {
       alert("Failed to place order: " + error.message);
@@ -161,7 +159,7 @@ export default function CheckoutPage() {
     <div className="min-h-screen bg-[#F9F5F0] p-4 md:p-8 font-sans text-[#4B3621]">
       <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
         
-        {/* LEFT COLUMN: FORM */}
+        {/* FORM SECTION */}
         <div className="bg-white p-6 rounded-xl shadow-lg border border-[#4B3621]/10">
           <h2 className="text-2xl font-serif font-bold mb-6 flex justify-between items-center">
             Checkout
@@ -170,7 +168,7 @@ export default function CheckoutPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             
-            {/* Personal Details */}
+            {/* Details */}
             <div className="space-y-3">
               <label className="block text-xs font-bold uppercase text-[#C5A059] tracking-wider">Contact Info</label>
               <input required name="name" placeholder="Full Name" value={formData.name} onChange={handleChange}
@@ -184,7 +182,6 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            {/* Delivery Details */}
             <div className="space-y-3 pt-2">
               <label className="block text-xs font-bold uppercase text-[#C5A059] tracking-wider">Delivery Details</label>
               <textarea required name="address" placeholder="Complete Delivery Address" rows={3} value={formData.address} onChange={handleChange}
@@ -197,18 +194,17 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            {/* NEW: Note Section */}
             <div className="mb-6">
               <h3 className="font-bold mb-2">Order Note (Optional)</h3>
               <textarea
-                placeholder="Any special requests? (e.g., 'Please write Happy Birthday')"
+                placeholder="Any special requests?"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 className="w-full p-3 border rounded-lg h-24 resize-none focus:border-[#C5A059] outline-none"
               />
             </div>
 
-            {/* Payment Selection */}
+            {/* Payment */}
             <div className="pt-6">
               <label className="block text-xs font-bold uppercase text-[#C5A059] tracking-wider mb-3">Payment Method</label>
               
@@ -223,7 +219,7 @@ export default function CheckoutPage() {
                 </button>
               </div>
 
-              {/* UPI Section */}
+              {/* UPI Section with Copy Button */}
               {paymentMethod === 'upi' && (
                 <div className="bg-gray-50 border border-dashed border-[#4B3621] rounded-lg p-6 text-center animate-in fade-in zoom-in">
                   <p className="text-sm mb-4 font-bold">Scan to Pay ₹{total}</p>
@@ -232,10 +228,19 @@ export default function CheckoutPage() {
                     <QRCodeSVG value={upiLink} size={160} level="M" />
                   </div>
                   
-                  <div className="mb-4">
-                    <a href={upiLink} className="text-blue-600 text-xs font-bold underline hover:text-blue-800">
-                      Tap here to pay using GPay / PhonePe
+                  <div className="mb-6 space-y-2">
+                    <p className="text-xs text-gray-500">Tap link below or Copy ID manually if link fails</p>
+                    <a href={upiLink} className="block text-blue-600 text-sm font-bold underline mb-2">
+                      Click to Pay (GPay/PhonePe)
                     </a>
+                    
+                    {/* Manual Copy Fallback */}
+                    <div className="flex items-center justify-center gap-2">
+                      <code className="bg-gray-200 px-2 py-1 rounded text-xs">{adminUpi.id}</code>
+                      <button type="button" onClick={copyUpi} className="text-gray-500 hover:text-black">
+                        {copied ? <Check size={16} className="text-green-600"/> : <Copy size={16}/>}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="text-left">
@@ -253,7 +258,7 @@ export default function CheckoutPage() {
           </form>
         </div>
 
-        {/* RIGHT COLUMN: ORDER SUMMARY */}
+        {/* ORDER SUMMARY */}
         <div className="h-fit bg-[#F5F5DC] p-6 rounded-xl border border-[#4B3621]/10 sticky top-4">
           <h3 className="text-xl font-serif font-bold mb-4">Your Order</h3>
           <div className="divide-y divide-[#4B3621]/20">
