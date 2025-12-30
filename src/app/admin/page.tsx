@@ -4,8 +4,8 @@ import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
-  LayoutDashboard, ShoppingBag, Users, Settings, LogOut, 
-  Plus, Trash2, ExternalLink, CheckCircle, Clock, DollarSign, Star, Loader2, X 
+  LayoutDashboard, ShoppingBag, Settings, LogOut, 
+  Plus, Trash2, ExternalLink, Star, Loader2, MapPin, MessageSquare, DollarSign, Search
 } from 'lucide-react';
 
 export default function AdminPage() {
@@ -19,9 +19,11 @@ export default function AdminPage() {
   const [testimonials, setTestimonials] = useState<any[]>([]);
   const [settings, setSettings] = useState({ upi_id: '', upi_name: '' });
 
+  // Search State
+  const [search, setSearch] = useState('');
+
   // Form States
   const [newProd, setNewProd] = useState({ name: '', price: '', desc: '' });
-  // Changed to array for multiple files
   const [imageFiles, setImageFiles] = useState<File[]>([]); 
   const [uploading, setUploading] = useState(false);
   const [newReview, setNewReview] = useState({ name: '', msg: '' });
@@ -53,7 +55,7 @@ export default function AdminPage() {
     supabase.from('app_settings').select('*').single().then(({ data }) => data && setSettings(data));
   };
 
-  // --- 2. ORDER STATUS LOGIC ---
+  // --- 2. ORDER LOGIC ---
   const handleStatusChange = async (orderId: number, newStatus: string, orderData: any) => {
     // Optimistic Update
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, payment_status: newStatus } : o));
@@ -66,7 +68,7 @@ export default function AdminPage() {
       return;
     }
 
-    // B. Send Email Notification
+    // B. Send Email Notification (Status Update)
     if (orderData.customer_email) {
       fetch('/api/email', {
         method: 'POST',
@@ -76,7 +78,7 @@ export default function AdminPage() {
           customerEmail: orderData.customer_email,
           status: newStatus,
           orderDetails: {
-            id: orderId,
+            id: orderData.order_code || orderId,
             name: orderData.customer_name,
             address: orderData.delivery_address || 'Pickup'
           }
@@ -85,34 +87,36 @@ export default function AdminPage() {
     }
   };
 
-  // --- 3. PRODUCT LOGIC (MULTIPLE UPLOAD) ---
+  // Search Filter
+  const filteredOrders = orders.filter(order => 
+    (order.order_code && order.order_code.toLowerCase().includes(search.toLowerCase())) ||
+    (order.customer_phone && order.customer_phone.includes(search)) ||
+    (order.customer_name && order.customer_name.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  // --- 3. PRODUCT LOGIC ---
   const handleAddProduct = async () => {
     if (imageFiles.length === 0 || !newProd.name || !newProd.price) return alert("Please fill all fields and select images.");
     setUploading(true);
 
     try {
-      // Loop through all selected files and upload them
       const uploadPromises = imageFiles.map(async (file) => {
         const fileExt = file.name.split('.').pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-        
         const { error: uploadError } = await supabase.storage.from('products').upload(fileName, file);
         if (uploadError) throw uploadError;
-
         const { data } = supabase.storage.from('products').getPublicUrl(fileName);
         return data.publicUrl;
       });
 
-      // Wait for all uploads to finish
       const uploadedUrls = await Promise.all(uploadPromises);
 
-      // Insert into DB with the Array of URLs
       const { error: dbError } = await supabase.from('products').insert({
         name: newProd.name,
         price: Number(newProd.price),
         description: newProd.desc,
-        images: uploadedUrls, // Save the array of strings
-        image_url: uploadedUrls[0] // Save first image as fallback string
+        images: uploadedUrls, 
+        image_url: uploadedUrls[0] 
       });
 
       if (dbError) throw dbError;
@@ -198,89 +202,112 @@ export default function AdminPage() {
         {/* 1. ORDERS TAB */}
         {activeTab === 'orders' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-            <div className="grid grid-cols-3 gap-6 mb-8">
-              <div className="bg-[#4B3621] text-white p-6 rounded-2xl shadow-lg">
-                <p className="text-sm opacity-70">Total Revenue</p>
-                <p className="text-3xl font-bold mt-1">₹{orders.reduce((sum, o) => sum + Number(o.total_amount), 0)}</p>
-              </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#4B3621]/10">
-                <p className="text-sm text-gray-500">Pending Orders</p>
-                <p className="text-3xl font-bold mt-1 text-yellow-600">{orders.filter(o => o.payment_status === 'Pending').length}</p>
-              </div>
+            
+            {/* Stats & Search */}
+            <div className="flex gap-4 mb-6">
+               <div className="bg-[#4B3621] text-white p-6 rounded-2xl shadow-lg flex-1">
+                 <p className="text-sm opacity-70">Total Revenue</p>
+                 <p className="text-3xl font-bold mt-1">₹{orders.reduce((sum, o) => sum + Number(o.total_amount), 0)}</p>
+               </div>
+               
+               <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex-[2] flex flex-col justify-center">
+                 <div className="flex items-center gap-2 border bg-gray-50 rounded-lg p-2">
+                    <Search className="text-gray-400"/>
+                    <input 
+                      className="bg-transparent outline-none w-full"
+                      placeholder="Search by Order ID, Phone, or Name..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                 </div>
+               </div>
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm border border-[#4B3621]/10 overflow-hidden">
-              {orders.length === 0 ? <p className="p-8 text-center text-gray-500">No orders yet.</p> : orders.map((o) => (
-                <div key={o.id} className="p-6 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-1">
-                      <span className="font-bold text-lg">{o.customer_name}</span>
-                      <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500 uppercase">{o.payment_method}</span>
-                    </div>
-                    <p className="text-sm text-gray-500 mb-2">Delivery: {o.delivery_date} • {o.customer_phone}</p>
-                    <div className="flex gap-2 text-xs flex-wrap">
-                      {o.items.map((i: any) => (
-                         <span key={i.name} className="bg-[#F9F5F0] px-2 py-1 rounded text-[#4B3621] font-bold">{i.name} x{i.qty}</span>
-                      ))}
-                    </div>
-                  </div>
+              {filteredOrders.length === 0 ? <p className="p-8 text-center text-gray-500">No orders found.</p> : filteredOrders.map((o) => (
+                <div key={o.id} className="p-6 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition">
                   
-                  <div className="text-right flex flex-col items-end gap-2">
-                    <span className="font-bold text-xl">₹{o.total_amount}</span>
-                    <div className="relative">
-                      <select 
-                        value={o.payment_status} 
-                        onChange={(e) => handleStatusChange(o.id, e.target.value, o)}
-                        className={`appearance-none cursor-pointer pl-3 pr-8 py-2 rounded-lg text-xs font-bold border outline-none transition-all ${
-                          o.payment_status === 'Completed' ? 'bg-green-100 text-green-700 border-green-200' :
-                          o.payment_status === 'In-Transit' ? 'bg-blue-100 text-blue-700 border-blue-200' :
-                          o.payment_status === 'Preparing' ? 'bg-orange-100 text-orange-700 border-orange-200' :
-                          'bg-yellow-100 text-yellow-700 border-yellow-200'
-                        }`}
-                      >
-                        <option value="Pending">Pending</option>
-                        <option value="Preparing">Preparing</option>
-                        <option value="In-Transit">In-Transit</option>
-                        <option value="Completed">Completed</option>
-                      </select>
-                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-600 text-xs">▼</div>
+                  {/* Top Row: Code, Name, Status */}
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <span className="bg-[#4B3621] text-white px-3 py-1 rounded-md text-sm font-bold tracking-wider inline-block mb-2">
+                        {o.order_code || `ID:${o.id.toString().slice(0,6)}`}
+                      </span>
+                      <h4 className="font-bold text-lg">{o.customer_name}</h4>
+                      <p className="text-sm text-gray-500">{o.delivery_date} • {o.customer_phone}</p>
+                    </div>
+                    
+                    <div className="text-right">
+                      <p className="font-bold text-xl">₹{o.total_amount}</p>
+                      <div className="relative mt-2">
+                        <select 
+                          value={o.payment_status} 
+                          onChange={(e) => handleStatusChange(o.id, e.target.value, o)}
+                          className={`appearance-none cursor-pointer pl-3 pr-8 py-2 rounded-lg text-xs font-bold border outline-none transition-all ${
+                            o.payment_status === 'Completed' ? 'bg-green-100 text-green-700 border-green-200' :
+                            o.payment_status === 'In-Transit' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                            o.payment_status === 'Preparing' ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                            'bg-yellow-100 text-yellow-700 border-yellow-200'
+                          }`}
+                        >
+                          <option value="Pending">Pending</option>
+                          <option value="Preparing">Preparing</option>
+                          <option value="In-Transit">In-Transit</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Middle Row: Address & Note */}
+                  <div className="grid md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg mb-4 text-sm">
+                    <div className="flex gap-2">
+                       <MapPin size={16} className="text-gray-400 flex-shrink-0 mt-1"/>
+                       <p>{o.delivery_address || 'Address not provided'}</p>
+                    </div>
+                    {o.order_note && (
+                      <div className="flex gap-2 text-blue-800 bg-blue-50 p-2 rounded">
+                         <MessageSquare size={16} className="flex-shrink-0 mt-1"/>
+                         <p><strong>Note:</strong> {o.order_note}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bottom Row: Items */}
+                  <div className="flex flex-wrap gap-2">
+                    {o.items.map((i: any) => (
+                       <span key={i.name} className="bg-[#F9F5F0] px-2 py-1 rounded text-[#4B3621] text-xs font-bold border border-[#4B3621]/10">
+                         {i.name} x{i.qty}
+                       </span>
+                    ))}
+                  </div>
+
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* 2. PRODUCTS TAB (UPDATED FOR MULTI UPLOAD) */}
+        {/* 2. PRODUCTS TAB */}
         {activeTab === 'products' && (
           <div className="grid md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-4">
+            {/* Add Product Form */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-[#4B3621]/10 h-fit">
               <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Plus size={20}/> Add New Item</h3>
               <div className="space-y-4">
                 <input placeholder="Item Name" value={newProd.name} onChange={e => setNewProd({...newProd, name: e.target.value})} className="w-full bg-[#F9F5F0] p-3 rounded-lg outline-none focus:ring-2 focus:ring-[#C5A059]" />
                 <div className="flex gap-4">
                    <input type="number" placeholder="Price (₹)" value={newProd.price} onChange={e => setNewProd({...newProd, price: e.target.value})} className="w-1/2 bg-[#F9F5F0] p-3 rounded-lg outline-none focus:ring-2 focus:ring-[#C5A059]" />
-                   
-                   {/* MULTI FILE INPUT */}
                    <div className="w-1/2">
                       <label htmlFor="file-upload" className="block text-xs font-bold text-gray-400 mb-1 cursor-pointer">
                         Upload Photos
                       </label>
-                      <input 
-                        id="file-upload"
-                        type="file" 
-                        multiple 
-                        accept="image/*"
-                        onChange={e => {
-                          if (e.target.files) setImageFiles(Array.from(e.target.files));
-                        }} 
+                      <input id="file-upload" type="file" multiple accept="image/*"
+                        onChange={e => { if (e.target.files) setImageFiles(Array.from(e.target.files)); }} 
                         className="w-full text-sm" 
                       />
                    </div>
                 </div>
-
-                {/* File Previews */}
                 {imageFiles.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {imageFiles.map((f, i) => (
@@ -288,19 +315,17 @@ export default function AdminPage() {
                     ))}
                   </div>
                 )}
-
                 <textarea placeholder="Description" value={newProd.desc} onChange={e => setNewProd({...newProd, desc: e.target.value})} className="w-full bg-[#F9F5F0] p-3 rounded-lg outline-none focus:ring-2 focus:ring-[#C5A059]" rows={3} />
-                
                 <button onClick={handleAddProduct} disabled={uploading} className="w-full bg-[#4B3621] text-white py-3 rounded-lg font-bold hover:bg-[#2C1A11] transition flex justify-center items-center gap-2">
                   {uploading && <Loader2 className="animate-spin" size={16}/>} {uploading ? 'Uploading...' : 'Add to Menu'}
                 </button>
               </div>
             </div>
 
+            {/* Product List */}
             <div className="space-y-4">
               {products.map(p => (
                 <div key={p.id} className="bg-white p-4 rounded-xl shadow-sm border border-[#4B3621]/10 flex gap-4 items-center">
-                  {/* Handle Single or Multiple Images for Display */}
                   <img src={p.images?.[0] || p.image_url || '/placeholder.jpg'} className="w-20 h-20 rounded-lg object-cover bg-gray-100" />
                   <div className="flex-1">
                     <h4 className="font-bold">{p.name}</h4>

@@ -19,12 +19,15 @@ export default function CheckoutPage() {
   // Form Data
   const [formData, setFormData] = useState({
     name: '',
-    email: '', // Needed for guests
+    email: '', 
     phone: '',
     address: '',
     date: '',
-    txnId: '' // For UPI reference
+    txnId: '' 
   });
+
+  // NEW: State for Order Note
+  const [note, setNote] = useState('');
 
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'upi'>('cod');
 
@@ -35,7 +38,7 @@ export default function CheckoutPage() {
       if (data) setAdminUpi({ id: data.upi_id, name: data.upi_name });
     });
 
-    // 2. Load Cart from LocalStorage
+    // 2. Load Cart
     const cart = JSON.parse(localStorage.getItem('whiskd_cart') || '{}');
     const products = JSON.parse(localStorage.getItem('whiskd_products') || '[]');
     let calcTotal = 0;
@@ -55,7 +58,6 @@ export default function CheckoutPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUser(user);
-        // Fetch Profile Details
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
         if (profile) {
           setFormData(prev => ({
@@ -82,7 +84,6 @@ export default function CheckoutPage() {
     return d.toISOString().split('T')[0];
   };
 
-  // UPI Intent Link (For Mobile Apps)
   const upiLink = `upi://pay?pa=${adminUpi.id}&pn=${encodeURIComponent(adminUpi.name)}&am=${total}&cu=INR`;
 
   // --- SUBMIT ORDER ---
@@ -97,35 +98,43 @@ export default function CheckoutPage() {
       }
 
       // 1. Insert Order into Supabase
-      const { error: orderError } = await supabase.from('orders').insert({
-        user_id: user?.id || null, // Null if guest
-        customer_name: formData.name,
-        customer_phone: formData.phone,
-        delivery_address: formData.address, // Added Address Column
-        delivery_date: formData.date,
-        items: items,
-        total_amount: total,
-        payment_method: paymentMethod,
-        transaction_ref: formData.txnId || null,
-        payment_status: paymentMethod === 'cod' ? 'Pending' : 'Verify Required',
-        customer_email: formData.email, // Save this!
-      });
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          user_id: user?.id || null,
+          customer_name: formData.name,
+          customer_phone: formData.phone,
+          customer_email: formData.email,
+          
+          delivery_address: formData.address, 
+          delivery_date: formData.date,
+          
+          items: items,
+          total_amount: total,
+          payment_method: paymentMethod,
+          payment_status: paymentMethod === 'cod' ? 'Pending' : 'Verify Required',
+          
+          // Save the note
+          order_note: note 
+        })
+        .select() // Return data to get the generated 'order_code'
+        .single(); 
 
       if (orderError) throw orderError;
 
-      // 2. Send Email Notifications (API Call)
-      // Note: We don't block the UI if email fails, but we log it.
+      // 2. Send Email
       await fetch('/api/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'NEW_ORDER',
-          customerEmail: formData.email,
           orderDetails: {
+            id: orderData.order_code, // Use the readable code (e.g. ORD-1234)
             name: formData.name,
             phone: formData.phone,
+            address: formData.address,
+            note: note,
             total: total,
-            date: formData.date,
             items: items,
             payment: paymentMethod
           }
@@ -144,7 +153,6 @@ export default function CheckoutPage() {
     }
   };
 
-  // If cart empty, redirect home (simple check)
   if (items.length === 0 && total === 0) {
     return <div className="p-10 text-center">Your cart is empty...</div>;
   }
@@ -185,8 +193,19 @@ export default function CheckoutPage() {
               <div>
                 <input required name="date" type="date" min={getMinDate()} value={formData.date} onChange={handleChange}
                   className="w-full border p-3 rounded bg-gray-50 focus:border-[#4B3621] outline-none" />
-                <p className="text-[10px] text-red-500 mt-1">* Minimum 24-hour notice required for fresh preparation.</p>
+                <p className="text-[10px] text-red-500 mt-1">* Minimum 24-hour notice required.</p>
               </div>
+            </div>
+
+            {/* NEW: Note Section */}
+            <div className="mb-6">
+              <h3 className="font-bold mb-2">Order Note (Optional)</h3>
+              <textarea
+                placeholder="Any special requests? (e.g., 'Please write Happy Birthday')"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                className="w-full p-3 border rounded-lg h-24 resize-none focus:border-[#C5A059] outline-none"
+              />
             </div>
 
             {/* Payment Selection */}
@@ -251,10 +270,6 @@ export default function CheckoutPage() {
           <div className="border-t-2 border-[#4B3621] mt-4 pt-4 flex justify-between items-center">
             <span className="font-bold text-lg">Total Amount</span>
             <span className="font-bold text-2xl text-[#4B3621]">₹{total}</span>
-          </div>
-          <div className="mt-6 text-xs text-gray-500 italic">
-            * By placing this order, you agree to our terms. 
-            <br/>Orders once placed cannot be cancelled within 12h of delivery.
           </div>
         </div>
 
