@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ⚠️ CRITICAL: In Resend 'Testing' mode, this MUST be the email you used to sign up.
-const ADMIN_EMAIL = '@gmail.com'; 
+const ADMIN_EMAIL = 'shivrajjagtap22093@gmail.com'; 
 
 export async function POST(request: Request) {
   try {
