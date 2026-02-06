@@ -3,8 +3,13 @@ import { NextResponse } from 'next/server';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// ⚠️ In Resend 'Testing' mode, this MUST be the email you used to sign up.
-const ADMIN_EMAIL = 'shivrajjagtap22093@gmail.com'; 
+// ✅ CHANGE: Add multiple emails to this array
+// In 'Testing' mode, ALL these emails must be verified/team members in your Resend dashboard.
+// Once you add a domain, you can send to anyone.
+const ADMIN_EMAILS = [
+  'shivrajjagtap22093@gmail.com', 
+  'kaustubhdesai1273@gmail.com' // Add your second admin email here
+];
 
 export async function POST(request: Request) {
   try {
@@ -13,10 +18,13 @@ export async function POST(request: Request) {
 
     if (type === 'NEW_ORDER') {
       
-      // 1. Email to OWNER (Admin Alert) - Always Active
+      // 1. Email to OWNERS (Admin Alert)
       await resend.emails.send({
         from: 'Whiskd Orders <onboarding@resend.dev>',
-        to: [ADMIN_EMAIL],
+        
+        // ✅ CHANGE: Pass the array of emails here
+        to: ADMIN_EMAILS,
+        
         subject: `🔔 NEW ORDER: ₹${orderDetails.total} from ${orderDetails.name}`,
         html: `
           <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
