@@ -794,7 +794,7 @@ export default function Home() {
             >
               <Sparkles size={14} className="text-[#C5A059]" />
               <span className="text-[#F5F5DC]/60">Crafted with</span>
-              <span className="font-bold text-[#C5A059]">Zenithics</span>
+              <span className="font-bold text-[#C5A059]">Synrova</span>
             </motion.div>
           </motion.div>
         </div>
